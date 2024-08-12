@@ -53,13 +53,13 @@ input_data={'c':Carbon,'mn':Manganese,'si':Silicon,'cr':Chromium,
 'ni':Nickel , 'mo':Molybdenum,'v':Vanadium, 'n':Nitrogen,'nb':Niobium, 'co':Cobalt,'w':Tungsten,'al':Aluminum,'ti':Titanium}
 
 df=pd.DataFrame([input_data])
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(df)
-final_df=pd.DataFrame(X_scaled,columns=df.columns)
+# scaler = StandardScaler()
+# X_scaled = scaler.fit_transform(df)
+# final_df=pd.DataFrame(X_scaled,columns=df.columns)
 
 
 if st.button('Predict'):
-    prediction = predict(final_df)
+    prediction = predict(df)
     # if prediction[0] == 1:
     st.success('The yield strength of steel will be----'+str(prediction))
     # else:
