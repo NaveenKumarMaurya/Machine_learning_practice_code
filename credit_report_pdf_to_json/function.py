@@ -1,3 +1,5 @@
+
+
 import re
 import json
 from datetime import datetime, date
@@ -45,6 +47,48 @@ def clean_field(text):
     text = re.sub(r'\b(DOB|ADDRESS|PAN NO|EMAIL ID)\b', '', text, flags=re.I)
     return text.strip()
 
+def extract_monthly_pay_status(account_block):
+    """
+    Extracts monthly payment status list from account block text.
+    Handles cases like:
+        000 000 000 000
+        04-25 03-25 02-25 01-25
+    or short ones like:
+        000
+        09-25
+    """
+
+    monthly_status_list = []
+
+    # Step 1: Locate the relevant part after 'DAYS PAST DUE/ASSET CLASSIFICATION'
+    match = re.search(
+        r"DAYS PAST DUE/ASSET CLASSIFICATION[^\n]*\n([\s\S]+?)(?=(ACCOUNT DATES|ENQUIRIES|$))",
+        account_block
+    )
+
+    if not match:
+        return monthly_status_list
+
+    history_block = match.group(1).strip()
+
+    # Step 2: Extract status lines (e.g., 000 000 000)
+    status_lines = re.findall(r'\b(?!\d{2}-\d{2})(?:STD|XXX|SMA|SUB|DBT|LSS|\d{3})\b', history_block)
+
+    # Step 3: Extract date lines (e.g., 04-25 03-25)
+    date_lines = re.findall(r'\b\d{2}-\d{2}\b', history_block) #re.findall(r"(?:\d{2}-\d{2}(?:\s+|$))+", history_block)
+
+    # Step 4: Process each matching pair of status/date lines
+    for status_line, date_line in zip(status_lines, date_lines):
+    
+        mm, yy = date_line.split("-")
+        yy_full = f"20{yy}" if len(yy) == 2 else yy
+        formatted_date = f"{yy_full}-{mm}-01"
+        monthly_status_list.append({
+            "date": formatted_date,
+            "status": status_line if status_line else "000"
+        })
+
+    return monthly_status_list
 
 
 def process_text_to_json(text):
@@ -186,26 +230,49 @@ def process_text_to_json(text):
         if "MEMBER NAME:" not in blk:
             continue
         acc_idx_str = str(acc_idx)
-        member_m = re.search(r"MEMBER NAME:([^O\n\r]+?)\s+OPENED:", blk)
+        member_m = re.search(r"MEMBER NAME:([^\n\r]+?)\s+OPENED:", blk)
         member = (member_m.group(1).strip() if member_m else "").strip()
         opened_m = re.search(r"OPENED:([0-9]{4}-[0-9]{2}-[0-9]{2})", blk)
         date_opened = opened_m.group(1) if opened_m else ""
         high_credit_m = re.search(r"HIGH CREDIT AMOUNT:([0-9\-,]+)", blk)
         high_credit = to_int(high_credit_m.group(1)) if high_credit_m else 0
-        account_num_m = re.search(r"ACCOUNT NUMBER:([0-9A-Za-z]+)", blk)
+        
+        
+        # account_num_m = re.search(r"ACCOUNT NUMBER:([0-9A-Za-z]+)", blk)
+        # account_num = account_num_m.group(1) if account_num_m else ""
+        
+        account_num_m = re.search(r"ACCOUNT NUMBER:([0-9A-Za-z]+)", blk) 
         account_num = account_num_m.group(1) if account_num_m else ""
+        if account_num=="":
+            account_num_m = re.search(r"NUMBER:([0-9A-Za-z]+)", blk) 
+            account_num = account_num_m.group(1) if account_num_m else ""
+        
+        
         date_reported_m = re.search(r"REPORTED AND CERTIFIED:([0-9]{4}-[0-9]{2}-[0-9]{2})", blk)
         date_reported = date_reported_m.group(1) if date_reported_m else ""
         curr_bal_m = re.search(r"CURRENT BALANCE:(-?[0-9\-,]+)", blk)
         curr_bal = to_int(curr_bal_m.group(1)) if curr_bal_m else 0
         closed_m = re.search(r"ACCOUNT CLOSED:\s*([0-9A-Za-z]+)", blk)
         date_closed = closed_m.group(1) if closed_m else "NA"
-        type_m = re.search(r"TYPE:\s*([A-Za-z0-9 \-]+?)\s+PMT HIST START:", blk)
+        
+        type_m = re.search(r"TYPE:\s*([A-Za-z0-9 \-]+?)\s", blk)
         acc_type = type_m.group(1).strip() if type_m else ""
+        
         pmt_start_m = re.search(r"PMT HIST START:([0-9]{4}-[0-9]{2}-[0-9]{2})", blk)
         pmt_start = pmt_start_m.group(1) if pmt_start_m else ""
+        
         emi_m = re.search(r"EMI:([0-9\-]+)", blk)
-        emi_amt = emi_m.group(1) if emi_m else "-1"
+        emi_amt = emi_m.group(1) if emi_m else ""
+        
+        match_pri = re.search(r"WRITTEN-OFF AMOUNT\(PRINCIPAL\):\s*(\d+)",blk)
+        written_off_principal = match_pri.group(1) if match_pri else ""
+        
+        # Extract WRITTEN-OFF AMOUNT(TOTAL)
+        match_written_total = re.search(r"WRITTEN-OFF AMOUNT\(TOTAL\):\s*(\d+)", blk)
+
+        written_off_total = match_written_total.group(1) if match_written_total else ""
+        
+            
         ownership_m = re.search(r"OWNERSHIP:([A-Za-z]+)", blk)
         ownership = ownership_m.group(1) if ownership_m else ""
         pmt_end_m = re.search(r"PMT HIST END:([0-9]{4}-[0-9]{2}-[0-9]{2})", blk)
@@ -217,46 +284,16 @@ def process_text_to_json(text):
         last_payment_m = re.search(r"LAST PAYMENT:([0-9]{4}-[0-9]{2}-[0-9]{2})", blk)
         last_payment = last_payment_m.group(1) if last_payment_m else ""
         repayment_tenure_m = re.search(r"REPAYMENT TENURE:([0-9\-]+)", blk)
-        tenure = repayment_tenure_m.group(1) if repayment_tenure_m else "-1"
-
-        # monthly payment statuses + date tokens
-        monthly_status_list = []
-        # find sequence of status tokens (like "000 000 000 ...") - require at least 6 tokens
-        statuses_m = re.search(r"((?:\b\d{3}\b[\s]*){6,})", blk)
-        dates_m = re.search(r"((?:\b\d{2}-\d{2}\b[\s]*){6,})", blk)
-        if statuses_m and dates_m:
-            status_tokens = re.findall(r"\b\d{3}\b", statuses_m.group(1))
-            date_tokens = re.findall(r"\b\d{2}-\d{2}\b", dates_m.group(1))
-            nmap = min(len(status_tokens), len(date_tokens))
-            for i in range(nmap):
-                dt = monthyear_to_date(date_tokens[i])
-                if dt:
-                    monthly_status_list.append({"date": dt.isoformat(), "status": str(int(status_tokens[i]))})
-        else:
-            # fallback: try to capture any 'DAYS PAST DUE' block and set zeros
-            if pmt_start:
-                # build 16 months descending from pmt_start (heuristic)
-                try:
-                    start = parse_yyyy_mm_dd(pmt_start)
-                    if start:
-                        # we will map last 16 months from start backward
-                        for i in range(0, 16):
-                            m = start.month - i
-                            y = start.year
-                            while m <= 0:
-                                m += 12
-                                y -= 1
-                            d = date(y, m, 1)
-                            monthly_status_list.append({"date": d.isoformat(), "status": "0"})
-                except:
-                    monthly_status_list = []
+        tenure = repayment_tenure_m.group(1) if repayment_tenure_m else ""
+        monthly_status_list=extract_monthly_pay_status(account_block=blk)
+        
 
         accounts.append({
             "accountType": acc_type,
             "accountNumber": account_num,
-            "actualPaymentAmount": str(to_int(emi_amt, -1)),
+            "actualPaymentAmount": str(to_int(emi_amt, 0)),
             "creditFacilityStatus": "",
-            "amountOverdue": str(to_int(amount_overdue, -1)),
+            "amountOverdue": str(to_int(amount_overdue, 0)),
             "currentBalance": str(curr_bal),
             "dateOpened": date_opened,
             "dateReported": date_reported,
@@ -269,13 +306,13 @@ def process_text_to_json(text):
             "paymentFrequency": payment_freq,
             "paymentHistory": "".join([s["status"] for s in monthly_status_list]) if monthly_status_list else "",
             "paymentStartDate": pmt_start,
-            "woAmountPrincipal": "-1",
-            "woAmountTotal": "-1",
+            "woAmountPrincipal":written_off_principal,
+            "woAmountTotal": written_off_total,
             "dateClosed": date_closed,
-            "termMonths": str(tenure if tenure else "-1"),
+            "termMonths": str(tenure if tenure else ""),
             "monthlyPayStatus": monthly_status_list,
-            "emiAmount": str(emi_amt if emi_amt else "-1"),
-            "repaymentTenure": str(tenure if tenure else "-1")
+            "emiAmount": str(emi_amt if emi_amt else ""),
+            "repaymentTenure": str(tenure if tenure else "")
         })
         acc_idx += 1
 

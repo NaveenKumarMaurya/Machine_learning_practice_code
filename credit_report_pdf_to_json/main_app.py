@@ -2,38 +2,48 @@ import re
 import json
 from datetime import datetime, date
 import pdfplumber
-
+import requests
+from flask import Flask, request, jsonify
+# from function2 import process_text_to_json
 from function import process_text_to_json
-import streamlit as st
+import io
+import flask
 
-# 🧱 Streamlit UI
-st.set_page_config(page_title="PDF to JSON Converter", page_icon="📄")
-st.title("📄 CREDIT REPORT PDF → JSON Converter")
 
-st.write("Upload a PDF file, and this app will extract text and return it as JSON.")
+from flask_cors import CORS
+app = flask.Flask(__name__)
+CORS(app)
 
-uploaded_file = st.file_uploader("Choose a PDF file", type=["pdf"])
+@app.route('/', methods=['GET'])
+def home():
+    return "Welcome to the PDF to JSON API!"
+@app.route('/upload_url', methods=['POST'])
+def convert_pdf_to_json():
+    data = request.get_json()
+    
+    if not data:
+        return "No url in the input", 400
+    
+    
 
-if uploaded_file is not None:
-    try:
-        # Read the PDF
-        with pdfplumber.open(uploaded_file) as pdf:
-            text = ""
-            for page in pdf.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text + "\n"
+    
+    if data:
+        try:
+            
+            # Step 1: Download the PDF file in memory
+            pdf_url=data["pdf_url"]
+            response = requests.get(pdf_url)
+            response.raise_for_status()  # ensure the request was successful
 
-        # Convert extracted text to JSON
-        data = process_text_to_json(text)
-
-        # Display formatted JSON
-        st.subheader("🧾 Extracted JSON")
-        st.json(data)
-
-        # Option to download JSON
-        json_str = json.dumps(data, indent=2)
-        st.download_button("⬇️ Download JSON", json_str, file_name="output.json")
-
-    except Exception as e:
-        st.error(f"Error processing file: {e}")
+            # Step 2: Open it with pdfplumber from bytes buffer
+            with pdfplumber.open(io.BytesIO(response.content)) as pdf:
+                text = ""
+                for page in pdf.pages:
+                    text += page.extract_text()  
+            # Process the text to extract structured data
+            data = process_text_to_json(text)
+            return  flask.jsonify(data)
+        except Exception as e:
+            return str(e), 500
+if __name__ == "__main__":
+    app.run(host='0.0.0.0',port=4008,debug=True)
