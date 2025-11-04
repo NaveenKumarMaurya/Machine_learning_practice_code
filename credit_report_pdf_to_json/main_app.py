@@ -18,30 +18,33 @@ url = st.text_input("Enter a URL:", placeholder="https://api.aurumkuberx.com/api
 # Button to fetch content
 if st.button("Fetch Content"):
     if url:
-        try:
-            
-            # Step 1: Download the PDF file in memory
-            
-            response = requests.get(url)
-            response.raise_for_status()  # ensure the request was successful
+        with st.spinner("🔄 Fetching content, please wait..."):
+            try:
+                
+                # Step 1: Download the PDF file in memory
+                
+                response = requests.get(url)
+                response.raise_for_status()  # ensure the request was successful
 
-            # Step 2: Open it with pdfplumber from bytes buffer
-            with pdfplumber.open(io.BytesIO(response.content)) as pdf:
-                text = ""
-                for page in pdf.pages:
-                    text += page.extract_text() 
+                # Step 2: Open it with pdfplumber from bytes buffer
+                with pdfplumber.open(io.BytesIO(response.content)) as pdf:
+                    text = ""
+                    for page in pdf.pages:
+                        text += page.extract_text() 
 
 
-            # Convert extracted text to JSON
-            data = process_text_to_json(text)
+                # Convert extracted text to JSON
+                data = process_text_to_json(text)
 
-            # Display formatted JSON
-            st.subheader("🧾 Extracted JSON")
-            st.json(data)
+                # Display formatted JSON
+                st.subheader("🧾 Extracted JSON")
+                st.json(data)
 
-            # Option to download JSON
-            json_str = json.dumps(data, indent=2)
-            st.download_button("⬇️ Download JSON", json_str, file_name="output.json")
+                # Option to download JSON
+                json_str = json.dumps(data, indent=2)
+                st.download_button("⬇️ Download JSON", json_str, file_name="output.json")
 
-        except Exception as e:
-            st.error(f"Error processing file: {e}")
+            except Exception as e:
+                st.error(f"Error processing file: {e}")
+    else:
+        st.warning("⚠️ Please enter a valid URL.")
